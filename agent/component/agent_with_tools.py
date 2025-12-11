@@ -32,6 +32,7 @@ from rag.prompts.generator import next_step, COMPLETE_TASK, analyze_task, \
     citation_prompt, reflect, rank_memories, kb_prompt, citation_plus, full_question, message_fit_in
 from rag.utils.mcp_tool_call_conn import MCPToolCallSession, mcp_tool_metadata_to_openai_tool
 from agent.component.llm import LLMParam, LLM
+import json
 
 
 class AgentParam(LLMParam, ToolParamBase):
@@ -221,26 +222,115 @@ class Agent(LLM, ToolBase):
             user_request = history[-1]["content"]
 
         def use_tool(name, args):
-            nonlocal hist, use_tools, token_count,last_calling,user_request
-            logging.info(f"{last_calling=} == {name=}")
-            # Summarize of function calling
-            #if all([
-            #    isinstance(self.toolcall_session.get_tool_obj(name), Agent),
-            #    last_calling,
-            #    last_calling != name
-            #]):
-            #    self.toolcall_session.get_tool_obj(name).add2system_prompt(f"The chat history with other agents are as following: \n" + self.get_useful_memory(user_request, str(args["user_prompt"]),user_defined_prompt))
+            nonlocal hist, use_tools, token_count, last_calling, user_request
+            import json
+            import re
+            
+            # === 详细调试：输入参数 ===
+            logging.info(f"\n{'='*80}")
+            logging.info(f"🔧 [子Agent调用] {name}")
+            logging.info(f"   父Agent: {self._id}")
+            
+            # 打印完整参数（不截断）
+            logging.info(f"   完整参数JSON:")
+            try:
+                full_args = json.dumps(args, ensure_ascii=False, indent=2)
+                logging.info(full_args)
+            except Exception as e:
+                logging.error(f"   参数序列化失败: {e}")
+                logging.info(f"   原始参数: {args}")
+            
+            # 特别检查 user_prompt
+            if 'user_prompt' in args:
+                logging.info(f"\n   user_prompt长度: {len(args['user_prompt'])}")
+                logging.info(f"   user_prompt前500字符:\n{args['user_prompt'][:500]}")
+                logging.info(f"   user_prompt后500字符:\n{args['user_prompt'][-500:]}")
+            
+            logging.info(f"{'='*80}\n")
+            # === 调试结束 ===
+
             last_calling = name
+            
+            # 1. 执行调用
             tool_response = self.toolcall_session.tool_call(name, args)
+
+            # ================= 核心修复逻辑开始 =================
+            
+            # 2. 【补救】如果直接返回是 None，尝试从工具对象的状态中获取 output
+            # (这是解决你日志中“返回值为 NULL”但“完整输出”里有数据的关键)
+            if tool_response is None:
+                tool_obj = self.tools.get(name)
+                if tool_obj and hasattr(tool_obj, 'output'):
+                    rescued_data = tool_obj.output()
+                    if rescued_data:
+                        tool_response = rescued_data
+                        logging.info(f" 🔧 [自动修复] 已从 Tool.output() 补救回数据")
+
+            # 3. 【清洗】提取 content 并转为字符串
+            actual_response = tool_response # 默认为原值
+            
+            if isinstance(tool_response, dict):
+                # 情况A: 标准字典返回 {'content': '...', ...}
+                if 'content' in tool_response:
+                    actual_response = tool_response['content']
+                    logging.info(f" 🧹 [数据清洗] 提取 content 字段成功")
+                else:
+                    # 情况B: 字典但没有content，转字符串防止丢数据
+                    actual_response = json.dumps(tool_response, ensure_ascii=False)
+            
+            # 4. 【去噪】去除 Markdown 包裹 (兼容修正Agent返回的纯代码)
+            # 匹配 ```json ... ``` 或 ```python ... ``` 或 纯 ``` ... ```
+            if isinstance(actual_response, str):
+                pattern = r"```(?:\w+)?\s*(.*?)```"
+                match = re.search(pattern, actual_response, re.DOTALL)
+                if match:
+                    actual_response = match.group(1).strip()
+                    logging.info(f" 🧹 [数据清洗] 去除 Markdown 代码块包裹成功")
+
+            # ================= 核心修复逻辑结束 =================
+
+            # === 详细调试：检查最终返回 ===
+            logging.info(f"\n{'='*80}")
+            logging.info(f"✅ [子Agent最终结果] {name}")
+            logging.info(f"   原始类型: {type(tool_response)}")
+            
+            if tool_response is None:
+                # 如果补救后还是 None，才是真的出错了
+                logging.error(f"   ⚠️  严重错误：返回值为 NULL!")
+                
+                # 检查子Agent内部报错信息
+                tool_obj = self.tools.get(name)
+                if tool_obj and hasattr(tool_obj, 'error'):
+                    err = tool_obj.error()
+                    if err:
+                        logging.error(f"   子Agent内部错误: {err}")
+                
+                # 尝试打印完整对象状态以辅助 debug
+                if tool_obj and hasattr(tool_obj, 'output'):
+                    out = tool_obj.output()
+                    logging.error(f"   子Agent对象状态(output): {out}")
+            else:
+                # 打印最终清洗后的结果（也就是即将给到父Agent看的内容）
+                resp_str = str(actual_response)
+                logging.info(f"   最终清洗后长度: {len(resp_str)}")
+                logging.info(f"   最终清洗后内容(前500字): {resp_str[:500]}")
+            
+            logging.info(f"{'='*80}\n")
+            # === 调试结束 ===
+            
+            # 5. 存入历史
+            # ⚠️ 关键修正：这里必须存 actual_response (清洗后的字符串)，
+            # 绝对不能存 tool_response (可能是 None 或 复杂字典)
             use_tools.append({
                 "name": name,
                 "arguments": args,
-                "results": tool_response
+                "results": actual_response 
             })
+            
             # self.callback("add_memory", {}, "...")
-            #self.add_memory(hist[-2]["content"], hist[-1]["content"], name, args, str(tool_response), user_defined_prompt)
+            # self.add_memory(hist[-2]["content"], hist[-1]["content"], name, args, str(actual_response), user_defined_prompt)
 
-            return name, tool_response
+            return name, actual_response
 
         def complete():
             nonlocal hist

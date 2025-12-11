@@ -166,6 +166,32 @@ def run():
             for ans in canvas.run(query=query, files=files, user_id=user_id, inputs=inputs):
                 yield "data:" + json.dumps(ans, ensure_ascii=False) + "\n\n"
 
+            # === 内联调试代码 ===
+            logging.info("\n" + "="*80)
+            logging.info("🔍 Canvas执行完成")
+            logging.info("="*80)
+            
+            # 显示执行路径
+            logging.info(f"\n执行路径(共{len(canvas.path)}步):")
+            for i, cpn_id in enumerate(canvas.path):
+                logging.info(f"  {i+1}. {canvas.get_component_name(cpn_id)} - {cpn_id}")
+            
+            # 检查NULL输出
+            logging.info("\n检查组件输出:")
+            for cpn_id in canvas.path:
+                cpn_obj = canvas.get_component_obj(cpn_id)
+                output = cpn_obj.output()
+                
+                if output is None or (isinstance(output, dict) and output.get("content") is None):
+                    logging.error(f"\n❌ NULL输出: {canvas.get_component_name(cpn_id)}")
+                    logging.error(f"   ID: {cpn_id}")
+                    logging.error(f"   输出: {output}")
+                    
+                    error = cpn_obj.error()
+                    if error:
+                        logging.error(f"   错误: {error}")
+            # === 调试结束 ===
+
             cvs.dsl = json.loads(str(canvas))
             UserCanvasService.update_by_id(req["id"], cvs.to_dict())
         except Exception as e:
