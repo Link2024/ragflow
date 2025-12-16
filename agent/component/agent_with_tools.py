@@ -254,6 +254,14 @@ class Agent(LLM, ToolBase):
             # 1. 执行调用
             tool_response = self.toolcall_session.tool_call(name, args)
 
+            # === 新增：输出子Agent原始返回值 ===
+            logging.info(f"\n{'='*80}")
+            logging.info(f"📦 [子Agent原始返回] {name}")
+            logging.info(f"   类型: {type(tool_response)}")
+            logging.info(f"   原始值: {tool_response}")
+            logging.info(f"{'='*80}\n")
+            # === 调试输出结束 ===
+
             # ================= 核心修复逻辑开始 =================
             
             # 2. 【补救】如果直接返回是 None，尝试从工具对象的状态中获取 output
