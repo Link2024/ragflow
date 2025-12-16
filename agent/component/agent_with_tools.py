@@ -245,41 +245,40 @@ class Agent(LLM, ToolBase):
             import json
             import re
             
-            # === 详细调试：输入参数 ===
+            # === 输入参数日志 ===
             logging.info(f"\n{'='*80}")
             logging.info(f"🔧 [子Agent调用] {name}")
             logging.info(f"   父Agent: {self._id}")
-            
-            # 打印完整参数（不截断）
-            logging.info(f"   完整参数JSON:")
             try:
                 full_args = json.dumps(args, ensure_ascii=False, indent=2)
-                logging.info(full_args)
+                logging.info(f"   完整参数:\n{full_args}")
             except Exception as e:
                 logging.error(f"   参数序列化失败: {e}")
                 logging.info(f"   原始参数: {args}")
-            
-            # 特别检查 user_prompt
-            if 'user_prompt' in args:
-                logging.info(f"\n   user_prompt长度: {len(args['user_prompt'])}")
-                logging.info(f"   user_prompt前500字符:\n{args['user_prompt'][:500]}")
-                logging.info(f"   user_prompt后500字符:\n{args['user_prompt'][-500:]}")
-            
             logging.info(f"{'='*80}\n")
-            # === 调试结束 ===
 
             last_calling = name
             
             # 1. 执行调用
             tool_response = self.toolcall_session.tool_call(name, args)
-
-            # === 新增：输出子Agent原始返回值 ===
+            
+            # === 原始返回结果 ===
             logging.info(f"\n{'='*80}")
             logging.info(f"📦 [子Agent原始返回] {name}")
             logging.info(f"   类型: {type(tool_response)}")
-            logging.info(f"   原始值: {tool_response}")
+            if tool_response is None:
+                logging.warning(f"   ⚠️  返回为 None")
+            else:
+                try:
+                    if isinstance(tool_response, (dict, list)):
+                        raw_json = json.dumps(tool_response, ensure_ascii=False, indent=2)
+                        logging.info(f"   内容:\n{raw_json}")
+                    else:
+                        logging.info(f"   内容:\n{str(tool_response)}")
+                except Exception as e:
+                    logging.error(f"   序列化失败: {e}")
+                    logging.info(f"   repr: {repr(tool_response)}")
             logging.info(f"{'='*80}\n")
-            # === 调试输出结束 ===
 
             # ================= 核心修复逻辑开始 =================
             
@@ -316,34 +315,18 @@ class Agent(LLM, ToolBase):
 
             # ================= 核心修复逻辑结束 =================
 
-            # === 详细调试：检查最终返回 ===
+            # === 清洗后结果 ===
             logging.info(f"\n{'='*80}")
-            logging.info(f"✅ [子Agent最终结果] {name}")
-            logging.info(f"   原始类型: {type(tool_response)}")
-            
-            if tool_response is None:
-                # 如果补救后还是 None，才是真的出错了
-                logging.error(f"   ⚠️  严重错误：返回值为 NULL!")
-                
-                # 检查子Agent内部报错信息
+            logging.info(f"✅ [清洗后最终结果] {name}")
+            if actual_response is None:
+                logging.error(f"   ⚠️  清洗后仍为 None")
                 tool_obj = self.tools.get(name)
-                if tool_obj and hasattr(tool_obj, 'error'):
-                    err = tool_obj.error()
-                    if err:
-                        logging.error(f"   子Agent内部错误: {err}")
-                
-                # 尝试打印完整对象状态以辅助 debug
                 if tool_obj and hasattr(tool_obj, 'output'):
-                    out = tool_obj.output()
-                    logging.error(f"   子Agent对象状态(output): {out}")
+                    logging.error(f"   子Agent对象状态: {tool_obj.output()}")
             else:
-                # 打印最终清洗后的结果（也就是即将给到父Agent看的内容）
-                resp_str = str(actual_response)
-                logging.info(f"   最终清洗后长度: {len(resp_str)}")
-                logging.info(f"   最终清洗后内容(前500字): {resp_str[:500]}")
-            
+                logging.info(f"   类型: {type(actual_response)}")
+                logging.info(f"   内容:\n{str(actual_response)}")
             logging.info(f"{'='*80}\n")
-            # === 调试结束 ===
             
             # 5. 存入历史
             # ⚠️ 关键修正：这里必须存 actual_response (清洗后的字符串)，
