@@ -47,7 +47,11 @@ class AgentParam(LLMParam, ToolParamBase):
                 "parameters": {
                     "user_prompt": {
                         "type": "string",
-                        "description": "This is the order you need to send to the agent.",
+                        "description": (
+                            "The task instruction for the agent. "
+                            "Provide a clear, concise description of what the agent needs to do. "
+                            "If the task requires exact user input, use 'original_input' parameter instead."
+                        ),
                         "default": "",
                         "required": True
                     },
@@ -67,6 +71,19 @@ class AgentParam(LLMParam, ToolParamBase):
                                 "Should be as detailed and self-contained as possible."
                             ),
                         "required": True
+                    },
+                    "original_input": {
+                        "type": "string",
+                        "description": (
+                            "The ORIGINAL user input when the sub-agent needs exact content. "
+                            "Include this when the task involves: "
+                            "(1) Text analysis, processing, or generation that requires exact wording; "
+                            "(2) Data extraction with precise requirements; "
+                            "(3) Content modification based on specific user input; "
+                            "(4) Tasks where user's exact phrasing, terminology, or data points matter. "
+                            "Omit this if the agent only needs summarized context."
+                        ),
+                        "required": False
                     },
                 }
             }
@@ -146,6 +163,8 @@ class Agent(LLM, ToolBase):
                 usr_pmt += "\nREASONING:\n{}\n".format(kwargs["reasoning"])
             if kwargs.get("context"):
                 usr_pmt += "\nCONTEXT:\n{}\n".format(kwargs["context"])
+            if kwargs.get("original_input"):
+                usr_pmt += "\nORIGINAL USER INPUT:\n{}\n".format(kwargs["original_input"])
             if usr_pmt:
                 usr_pmt += "\nQUERY:\n{}\n".format(str(kwargs["user_prompt"]))
             else:
