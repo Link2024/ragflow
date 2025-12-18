@@ -32,17 +32,27 @@ When tasks require multiple independent steps, you can execute them in parallel 
 - Gathering user preferences from multiple sources
 
 # ==========  INFORMATION PRESERVATION FOR SUB-AGENTS ==========
-When calling sub-agents, decide whether to include 'original_input':
+**CRITICAL: Check TASK ANALYSIS for Original User Input**
+
+Before calling any sub-agent, check if the TASK ANALYSIS section above contains "Original User Input".
+
+**If "Original User Input" exists in TASK ANALYSIS:**
+- You MUST include it in the 'original_input' parameter when calling sub-agents
+- This applies especially to: code review, text analysis, design comparison, consistency checking, translation, formatting tasks
+- Extract the EXACT content from "Original User Input" field and pass it unchanged
 
 **Include 'original_input' when:**
 - Sub-agent needs exact user wording (text analysis, translation, formatting)
-- Task involves specific data points, numbers, codes, or identifiers
+- Task involves specific data points, numbers, codes, or identifiers  
 - Content creation/modification based on user's exact input
 - User query contains domain-specific terminology or technical details
+- Code review or design document comparison tasks
+- **TASK ANALYSIS contains "Original User Input" field**
 
 **Omit 'original_input' when:**
 - Sub-agent only needs high-level context or background
 - Original content is verbose and key points are sufficient
+- TASK ANALYSIS explicitly marks information as "SUMMARIZED" only
 
 # ==========  RESPONSE FORMAT ==========
 **When you need a tool**  
