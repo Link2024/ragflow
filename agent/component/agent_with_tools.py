@@ -385,6 +385,30 @@ class Agent(LLM, ToolBase):
             # self.callback("next_step", {}, str(response)[:256]+"...")
             token_count += tk
             hist.append({"role": "assistant", "content": response})
+            
+            # 自动注入 original_input（如果 TASK ANALYSIS 中有且工具需要）
+            try:
+                match = re.search(r'"Original User Input":\s*"((?:[^"\\]|\\.)*)"', task_desc, re.DOTALL)
+                if match:
+                    original_input = match.group(1).encode('utf-8').decode('unicode_escape')
+                    functions = json_repair.loads(re.sub(r"```.*", "", response))
+                    if isinstance(functions, list):
+                        modified = False
+                        for func in functions:
+                            if isinstance(func, dict) and 'arguments' in func:
+                                tool_meta = next((t for t in tool_metas if t['function']['name'] == func['name']), None)
+                                if tool_meta:
+                                    params = tool_meta['function']['parameters']['properties']
+                                    if 'original_input' in params and 'original_input' not in func['arguments']:
+                                        func['arguments']['original_input'] = original_input
+                                        modified = True
+                                        logging.info(f"🔧 [自动注入] {func['name']} <- original_input")
+                        if modified:
+                            response = json.dumps(functions, ensure_ascii=False)
+                            hist[-1]["content"] = response
+            except Exception as e:
+                logging.debug(f"original_input 自动注入跳过: {e}")
+            
             try:
                 functions = json_repair.loads(re.sub(r"```.*", "", response))
                 if not isinstance(functions, list):
